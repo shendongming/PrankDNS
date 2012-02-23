@@ -18,8 +18,8 @@ class PrankResolver(client.Resolver):
         return client.Resolver.query(self, query, timeout)
 
     def get_mapping(self, source):
-        """Finds a mapping for a matching IP in the database. Goes
-        from most specific to least specific, starting with the full IP
+        """Finds all mappings for a matching IP in the database. Prefers
+        mappings from the most specific match, starting with the full IP
         and ending with a wildcard.
         """
         mappings = {}
