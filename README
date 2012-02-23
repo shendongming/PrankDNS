@@ -2,6 +2,9 @@ Pranky is a lightweight DNS server that is able to filter  and provide custom
 responses for some requests while falling back on real DNS servers for others.
 It can filter based on both source IP and domain name.
 
+Start with start.sh. For changes in the customization files to take effect,
+re-run start.sh. This will kill and restart the server.
+
 To add custom DNS rules, edit mapping.txt:
 The format should a series of IP addresses each followed by lines that indicate
 a domain and then then the IP to place in the A record (separated by a space).
