@@ -1,0 +1,13 @@
+# Format:
+# Peer IP
+# Domain Response
+# Domain Resposne
+# ...
+127.0.*
+*.yahoo.com 184.72.115.86
+*.google.com 184.72.115.86
+*.mil 184.72.115.86
+127.0.0.1
+*.yahoo.com 123.123.123.123
+165.123.209.136 
+*.amazon.com 184.72.115.86

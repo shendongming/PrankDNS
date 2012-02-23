@@ -1,3 +1,4 @@
+from twisted.python import log
 from twisted.names import cache, client, dns, server
 from twisted.application import internet, service
 from twisted.internet import defer
@@ -16,20 +17,59 @@ class PrankResolver(client.Resolver):
             return self.lookupAddress(str(query.name), timeout, source)
         return client.Resolver.query(self, query, timeout)
 
-    def lookupAddress(self, name, timeout=None, source='0.0.0.0'):
-        """Check the source ip and destination, and return a custom
-        resolution if they are in the database. Else, fall back to
-        another DNS server
+    def get_mapping(self, source):
+        """Finds a mapping for a matching IP in the database. Goes
+        from most specific to least specific, starting with the full IP
+        and ending with a wildcard.
         """
+        mappings = {}
         if source in self.database:
-            if name in self.database[source]:
-                return self._get_custom_ip(name, timeout, source)
+            mappings = dict(self.database[source], **mappings)
+        parts = source.split(".")
+        for i in xrange(0, 4):
+            sub = ".".join(parts[0:(4 - i)]) + ".*"
+            if sub in self.database:
+                mappings = dict(self.database[sub], **mappings)
+        if '*' in self.database:
+            mappings = dict(self.database['*'], **mappings)
+        log.msg("Rules: " + str(mappings))
+        return mappings
+
+    def search_mapping(self, mapping, name):
+        """Searches a mapping for a match to the name. Goes from most
+        specific to least specific, starting with the full domain and
+        ending with a wildcard.
+        """
+        if name in mapping:
+            return mapping[name]
+        parts = name.split(".")
+        for i in xrange(0, len(parts)):
+            sub = "*." + ".".join(parts[i:len(parts)])
+            if sub in mapping:
+                return mapping[sub]
+        if '*' in mapping:
+            return mapping['*']
+
+    def lookupAddress(self, name, timeout=None, source='0.0.0.0'):
+        """Checks the source ip and destination, and returns a custom
+        resolution if they are in the database. Else, falls back to
+        another DNS server. Checks for specific domains before wildcards.
+        """
+        log.msg("Source: " + source)
+        mapping = self.get_mapping(source)
+        if mapping:
+            log.msg(mapping)
+            log.msg("Domain: " + name)
+            ip = self.search_mapping(mapping, name)
+            if ip:
+                return self._get_custom_ip(name, timeout, ip)
         return self._lookup(name, dns.IN, dns.A, timeout)
 
     @defer.inlineCallbacks
-    def _get_custom_ip(self, name, timeout, source):
+    def _get_custom_ip(self, name, timeout, ip):
         """Return custom A record"""
-        ip = yield self.database[source][name]
+        log.msg("Custom IP: " + ip)
+        ip = yield ip
         defer.returnValue([
             (dns.RRHeader(
                 name,
@@ -67,11 +107,32 @@ class CustomDNSServerFactory(server.DNSServerFactory):
         )
 
 
+def populateDatabase():
+    f = open('mapping.txt', 'r')
+    mapping = {}
+    ip = None
+    for line in f:
+        line = line.rstrip()
+        if line == '' or line[0] == '#':
+            continue
+        if ' ' not in line or not ip:
+            ip = line
+            mapping[ip] = {}
+        else:
+            parts = line.split(' ')
+            mapping[ip][parts[0]] = parts[1]
+    f.close()
+    return mapping
+
+
+def getFallbacks():
+    f = open('fallbacks.txt', 'r')
+    return [(line.rstrip(), 53) for line in f]
+    f.close()
+
 application = service.Application('pranky', 1, 1)
 
-mapping = {'127.0.0.1': {'www.google.com': '184.72.115.86', 'test.com': '184.72.115.86'}}
-fallback = [('8.8.8.8', 53)]
-resolver = PrankResolver(mapping, fallback)
+resolver = PrankResolver(populateDatabase(), getFallbacks())
 service_collection = service.IServiceCollection(application)
 
 dns_factory = CustomDNSServerFactory(clients=[resolver],
@@ -80,3 +141,7 @@ udp = dns.DNSDatagramProtocol(dns_factory)
 
 internet.TCPServer(53, dns_factory).setServiceParent(service_collection)
 internet.UDPServer(53, udp).setServiceParent(service_collection)
+
+if __name__ == "__main__":
+    print "Usage: twistd -y pranky.py"
+    print "Customize via mapping.txt and fallbacks.txt"
